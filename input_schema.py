@@ -1,28 +1,19 @@
 from pydantic import BaseModel, Field, model_validator
 
 class ChurnInput(BaseModel):
-    # Mandatory field (due to ...), int greater than or equal to 0
-    account_length: int = Field(..., ge=0)
-    
-    # Must be and int in the range 0, 1
-    international_plan: int = Field(..., ge=0, le=1)
-    voice_mail_plan: int = Field(..., ge=0, le=1)
-    number_vmail_messages: int = Field(..., ge=0)
-    total_day_minutes: float = Field(..., ge=0)
-    total_day_calls: int = Field(..., ge=0)
-    total_day_charge: float = Field(..., ge=0)
-    total_eve_minutes: float = Field(..., ge=0)
-    total_eve_calls: int = Field(..., ge=0)
-    total_eve_charge: float = Field(..., ge=0)
-    total_night_minutes: float = Field(..., ge=0)
-    total_night_calls: int = Field(..., ge=0)
-    total_night_charge: float = Field(..., ge=0)
-    total_intl_minutes: float = Field(..., ge=0)
-    total_intl_calls: int = Field(..., ge=0)
-    total_intl_charge: float = Field(..., ge=0)
-    number_customer_service_calls: int = Field(..., ge=0)
-    
-    
+    # Numeric fields with constraints
+    sla_target_hours: int = Field(..., ge=0)
+
+    # Categorical fields, with multiple string values
+    channel: str = Field(default="email", pattern="^(email|phone|in_app|webchat)$")
+    priority: str = Field(default="Medium", pattern="^(Low|Medium|High|Urgent)$")
+    plan_tier: str = Field(default="Free", pattern="^(Free|Standard|Pro|Enterprise)$")
+    sentiment: str = Field(default="Neutral", pattern="^(Positive|Neutral|Negative)$")
+
+    # Text fields
+    tags: str = Field(default="vat;subscription;invoice", max_length=100)
+
+"""
     # This validator runs before the model is fully constructed
     # It receives the raw input values as a dictionary
     # model_validator allows multiple fields to be checked
@@ -44,3 +35,4 @@ class ChurnInput(BaseModel):
                 pass
         # Return the validated (or original) dictionary
         return values
+"""

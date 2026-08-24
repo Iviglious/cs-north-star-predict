@@ -13,6 +13,7 @@ import os
 from input_schema import ChurnInput
 from pydantic import ValidationError
 
+
 # Required environment variables to run the application on KATE
 #prefix = os.environ["KOD_PREFIX"]
 port = 7860
@@ -26,11 +27,32 @@ model = bundle['model']
 # Generate input components from the Pydantic schema (ChurnInput)
 field_names = list(ChurnInput.model_fields.keys())
 
-# Create the inputs and tell Gradio that they're numbers
-inputs = [
-    gr.Number(label=field.replace("_", " ").title())
-    for field in field_names
-]
+# Create inputs that match each field's expected value type.
+categorical_options = {
+    "channel": ["email", "phone", "in_app", "webchat"],
+    "priority": ["Low", "Medium", "High", "Urgent"],
+    "plan_tier": ["Free", "Standard", "Pro", "Enterprise"],
+    "sentiment": ["Positive", "Neutral", "Negative"],
+}
+
+inputs = []
+for field_name in field_names:
+    label = field_name.replace("_", " ").title()
+    field_info = ChurnInput.model_fields[field_name]
+    default = None if field_info.is_required() else field_info.get_default()
+
+    if field_name in categorical_options:
+        inputs.append(
+            gr.Dropdown(
+                choices=categorical_options[field_name],
+                value=default,
+                label=label,
+            )
+        )
+    elif field_name == "tags":
+        inputs.append(gr.Textbox(value=default, label=label))
+    else:
+        inputs.append(gr.Number(value=default, label=label))
 
 # Define the prediction function (we're type hinting that it will return a string)
 # We don't need to do this but it helps to remind us what the output will be
@@ -52,7 +74,7 @@ def predict(*args) -> str:
     pred = model.predict(row)[0]
     
     # Return the corresponding label
-    return "Churn" if pred == 1 else "No churn"
+    return pred
 
 
 # Launch the interface
@@ -60,8 +82,8 @@ demo = gr.Interface(
     fn=predict,
     inputs=inputs,
     outputs="label",
-    title="Churn Prediction",
-    description="Enter customer details to predict whether they are likely to churn."
+    title="Team CShaNTy - Northstar Desk - Assign Team Prediction",
+    description="Enter case details to predict the team to which the case will be assigned."
 )
 
 
