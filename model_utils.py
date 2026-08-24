@@ -168,7 +168,9 @@ class TagBinarizer(BaseEstimator, TransformerMixin):
         return [f"tag__{tag}" for tag in self.classes_]
 
     def _to_tag_lists(self, X):
-        series = X.squeeze()
+        series = X.iloc[:, 0] if isinstance(X, pd.DataFrame) else X
+        if not isinstance(series, pd.Series):
+            series = pd.Series(series)
         return series.apply(lambda value: value if isinstance(value, list) else []).tolist()
 
 

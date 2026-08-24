@@ -18,11 +18,9 @@ from model_utils import load_case_data, add_file_month, DEMO_MONTHS
 # Required environment variables to run the application on KATE
 port = 7860
 
-# Load our Logistic Regression bundle (model+metadata) with PCA
-bundle = joblib.load("model/assigned_team_pipeline.joblib")
-
-# Extract the model (here actually a pipeline)
-model = bundle['model']
+# Load the trained pipeline. Older artifacts may wrap it in a mapping.
+loaded_model = joblib.load("model/assigned_team_pipeline.joblib")
+model = loaded_model["model"] if isinstance(loaded_model, dict) else loaded_model
 
 # Generate input components from the Pydantic schema (ChurnInput)
 field_names = list(ChurnInput.model_fields.keys())
@@ -94,6 +92,8 @@ def coerce_field_value(field_name, raw_value):
             return float(raw_value)
         except (TypeError, ValueError):
             return None
+    if field_name == "tags" and isinstance(raw_value, list):
+        return ";".join(str(tag) for tag in raw_value)
     return str(raw_value)
 
 
@@ -143,7 +143,11 @@ def predict(*args) -> tuple:
         raise gr.Error(str(e))
 
     # Use Pydantic's model_dump to get a dict → DataFrame
-    row = pd.DataFrame([validated.model_dump()])
+    row_data = validated.model_dump()
+    row_data["tags"] = [
+        tag.strip() for tag in row_data["tags"].split(";") if tag.strip()
+    ]
+    row = pd.DataFrame([row_data])
 
     # Get a prediction
     pred = model.predict(row)[0]
