@@ -14,7 +14,7 @@ from input_schema import ChurnInput
 from pydantic import ValidationError
 
 # Required environment variables to run the application on KATE
-prefix = os.environ["KOD_PREFIX"]
+#prefix = os.environ["KOD_PREFIX"]
 port = 7860
 
 # Load our Logistic Regression bundle (model+metadata) with PCA
@@ -70,7 +70,7 @@ if __name__ == "__main__":
     demo.launch(
         server_name='0.0.0.0',
         server_port=port,
-        root_path=f'{prefix}/vscode/proxy/{port}',
+        #root_path=f'{prefix}/vscode/proxy/{port}',
     )
 
 # ----------------
