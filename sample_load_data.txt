@@ -1,0 +1,14 @@
+from model_utils import DEMO_MONTHS, add_file_month, load_case_data, ROUTING_FEATURES
+import joblib
+
+cases, repair_log = load_case_data("data")
+cases = add_file_month(cases)
+
+demo_cases = cases[
+    cases["file_month"].isin(DEMO_MONTHS)
+].copy()
+
+model = joblib.load("models/assigned_team_pipeline.joblib")
+
+selected_case = demo_cases[demo_cases["case_id"].eq(case_id)]
+prediction = model.predict(selected_case[ROUTING_FEATURES])[0]
