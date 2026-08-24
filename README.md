@@ -42,3 +42,27 @@ csat_score
 tags
 ```
 
+
+## Cases to check
+
+Case ID: ND-2025-002119
+Predicted team: engineering
+Actual team: data
+Probabilities:
+  billing: 0.0103
+  data: 0.3672
+  engineering: 0.6100
+  operations: 0.0010
+  security: 0.0082
+  support: 0.0031
+
+Case ID: ND-2025-002078
+Predicted team: operations
+Actual team: support
+Probabilities:
+  billing: 0.0164
+  data: 0.0294
+  engineering: 0.0070
+  operations: 0.5700
+  security: 0.0149
+  support: 0.3623

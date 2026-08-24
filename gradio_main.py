@@ -82,7 +82,7 @@ def build_input(field_name):
 
 def coerce_field_value(field_name, raw_value):
     """Convert a raw CSV string value into the type each component expects."""
-    print(f"Coercing field '{field_name}' with raw value: {raw_value}")
+    #print(f"Coercing field '{field_name}' with raw value: {raw_value}")
     missing = pd.isna(raw_value)
     if not hasattr(missing, "__len__") and missing:
         return None
@@ -151,6 +151,13 @@ def predict(*args) -> tuple:
 
     # Get a prediction
     pred = model.predict(row)[0]
+    proba = model.predict_proba(row)[0]
+
+    # Print the predicted team and the probabilities for each class
+    print("Predicted team:", pred)
+    print("Probabilities:")
+    for team, prob in zip(model.classes_, proba):
+        print(f"  {team}: {prob:.4f}")
 
     # Return the predicted label and the comparison badge
     return pred, comparison_html(pred, expected_team)
