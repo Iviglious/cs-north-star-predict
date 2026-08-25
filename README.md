@@ -5,12 +5,19 @@
 ### Install
 ```
 python3 -m pip install --upgrade pip
-pip install gradio scikit-learn pydantic
+pip install -r requirements.txt
 ```
 
 ### Start
+
 ```
+# Assign Team Predictor
 python gradio_main.py
+https://2e2b134ec08e5a4865.gradio.live 
+
+# Triage Assistant
+python lessons/app.py --host 0.0.0.0 --port 7861 --share=True
+https://2da0952919df00da89.gradio.live/
 ```
 
 ## Data Fields
