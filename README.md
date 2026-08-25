@@ -66,3 +66,14 @@ Probabilities:
   operations: 0.5700
   security: 0.0149
   support: 0.3623
+
+Case ID: ND-2025-002050
+Predicted team: security
+Actual team: support
+Probabilities:
+  billing: 0.0002
+  data: 0.0000
+  engineering: 0.0002
+  operations: 0.0037
+  security: 0.9955
+  support: 0.0003

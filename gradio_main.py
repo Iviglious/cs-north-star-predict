@@ -60,6 +60,9 @@ categorical_options = {
     "sentiment": ["Positive", "Neutral", "Negative"],
 }
 
+# Confidence percentage slider withd default value of 75%
+confidence_slider = gr.Slider(minimum=0, maximum=100, value=75, label="Confidence Percentage")
+
 
 def build_input(field_name):
     """Create the matching Gradio component for a single schema field."""
@@ -112,7 +115,7 @@ def load_case(case_id):
     return field_updates + [gr.update(value=expected_team)]
 
 
-def comparison_html(predicted, expected):
+def comparison_html(predicted, expected, top_predictions, confidence_percentage):
     """Render a green (Correct) / red (Incorrect) comparison badge."""
     if not expected:
         return ""
@@ -123,6 +126,27 @@ def comparison_html(predicted, expected):
         f"<div style='background-color:{color};color:white;padding:10px;"
         f"border-radius:8px;text-align:center;font-weight:bold;font-size:16px;'>"
         f"{text}</div>"
+
+        # Check if the top prediction is below the confidence threshold and display a warning if so
+        + (
+            f"<div style='background-color:#facc15;color:black;padding:10px;"
+            f"border-radius:8px;text-align:center;font-weight:bold;font-size:16px;'>"
+            f"Warning: The top prediction is below the confidence threshold."
+            f"</div>"
+            if top_predictions and list(top_predictions.values())[0] < (confidence_percentage / 100.0)
+            else ""
+        )
+
+        # Table of top predictions and their probabilities
+        + f"<table style='width:100%;margin-top:10px;border-collapse:collapse;'>"
+        f"<tr><th style='text-align:left;padding:5px;border-bottom:1px solid #ddd;'>Top Predictions</th>"
+        f"<th style='text-align:right;padding:5px;border-bottom:1px solid #ddd;'>Probability</th></tr>"
+        + "".join(
+            f"<tr><td style='padding:5px;border-bottom:1px solid #ddd;'>{team}</td>"
+            f"<td style='padding:5px;border-bottom:1px solid #ddd;text-align:right;'>{prob:.2%}</td></tr>"
+            for team, prob in top_predictions.items()
+        )
+        + "</table>"
     )
 
 
@@ -130,7 +154,7 @@ def comparison_html(predicted, expected):
 # colored badge comparing it against the expected assigned team.
 def predict(*args) -> tuple:
     # The last argument is the expected assigned team (not a model input).
-    *field_values, expected_team = args
+    *field_values, expected_team, confidence_percentage = args
 
     # Match predicts input with the field names
     input_data = dict(zip(field_names, field_values))
@@ -153,14 +177,18 @@ def predict(*args) -> tuple:
     pred = model.predict(row)[0]
     proba = model.predict_proba(row)[0]
 
-    # Print the predicted team and the probabilities for each class
-    print("Predicted team:", pred)
-    print("Probabilities:")
-    for team, prob in zip(model.classes_, proba):
-        print(f"  {team}: {prob:.4f}")
+    # Convert the model.classes_ and probabilities into a dictionary for easier display
+    # Show the top 3 predicted classes with their probabilities
+    top_indices = proba.argsort()[-3:][::-1]
+    top_classes = [model.classes_[i] for i in top_indices]
+    top_probabilities = [proba[i] for i in top_indices]
+
+    # Create a dictionary of the top classes and their probabilities
+    top_predictions = dict(zip(top_classes, top_probabilities))
 
     # Return the predicted label and the comparison badge
-    return pred, comparison_html(pred, expected_team)
+    # Pass the dictionary of top classes and probabilities to the comparison_html function for display
+    return pred, comparison_html(pred, expected_team, top_predictions, confidence_percentage)
 
 
 # Build the interface with Blocks so the case dropdown can populate the fields.
@@ -170,6 +198,9 @@ with gr.Blocks(title="Team CShaNTy - Northstar Desk - Assign Team Prediction") a
         "Select a case to auto-fill its details, or edit the fields manually, "
         "then predict the team to which the case will be assigned."
     )
+
+    # Add the confidence percentage slider to the interface
+    confidence_slider.render()
 
     # Dropdown listing every case (row) from the CSV.
     case_dropdown = gr.Dropdown(
@@ -198,7 +229,7 @@ with gr.Blocks(title="Team CShaNTy - Northstar Desk - Assign Team Prediction") a
     # Run the prediction using the current field values and compare it.
     predict_btn.click(
         fn=predict,
-        inputs=inputs + [expected_team],
+        inputs=inputs + [expected_team] + [confidence_slider],
         outputs=[output, comparison],
     )
 
