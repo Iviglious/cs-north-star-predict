@@ -109,38 +109,99 @@ def predict_escalation_team(case_id):
     }
 
 
+def build_manual_review_queue(threshold):
+    rows = []
+    for _, row in demo_cases.iterrows():
+        features = row[ROUTING_FEATURES]
+        probability = assigned_team_model.predict_proba(features.to_frame().T)[0]
+        confidence = probability.max()
+        prediction = assigned_team_model.predict(features.to_frame().T)[0]
+
+        if confidence < threshold:
+            rows.append(
+                {
+                    "case_id": row["case_id"],
+                    "status": row["status"],
+                    "priority": row["priority"],
+                    "channel": row["channel"],
+                    "actual_team": row["assigned_team"],
+                    "predicted_team": prediction,
+                    "confidence": f"{confidence:.1%}",
+                    "escalated": bool(row["escalated"]),
+                }
+            )
+
+    return pd.DataFrame(rows)
+
+
 with gr.Blocks() as app:
-    case_picker = gr.Dropdown(case_choices, label="Select Oct-Dec demo case")
-    threshold = gr.Slider(
-        minimum=0.50,
-        maximum=0.95,
-        value=MANUAL_REVIEW_THRESHOLD,
-        step=0.05,
-        label="Minimum confidence for auto-suggestion",
-    )
+    gr.Markdown("# Northstar Desk routing assistant")
 
-    case_output = gr.JSON(label="Case details")
-    assigned_output = gr.JSON(label="Assigned-team prediction")
-    escalation_output = gr.JSON(label="Escalation-team prediction")
+    with gr.Tab("Single case review"):
+        case_picker = gr.Dropdown(case_choices, label="Select Oct-Dec demo case")
+        threshold = gr.Slider(
+            minimum=0.50,
+            maximum=0.95,
+            value=MANUAL_REVIEW_THRESHOLD,
+            step=0.05,
+            label="Minimum confidence for auto-suggestion",
+        )
 
-    assigned_button = gr.Button("Predict assigned team")
-    escalation_button = gr.Button("Predict escalation team", interactive=False)
+        case_output = gr.JSON(label="Case details")
+        assigned_output = gr.JSON(label="Assigned-team prediction")
+        escalation_output = gr.JSON(label="Escalation-team prediction")
 
-    case_picker.change(
-        fn=case_details,
-        inputs=case_picker,
-        outputs=[case_output, escalation_button],
-    )
-    assigned_button.click(
-        fn=predict_assigned_team,
-        inputs=[case_picker, threshold],
-        outputs=assigned_output,
-    )
-    escalation_button.click(
-        fn=predict_escalation_team,
-        inputs=case_picker,
-        outputs=escalation_output,
-    )
+        assigned_button = gr.Button("Predict assigned team")
+        escalation_button = gr.Button("Predict escalation team", interactive=False)
+
+        case_picker.change(
+            fn=case_details,
+            inputs=case_picker,
+            outputs=[case_output, escalation_button],
+        )
+        assigned_button.click(
+            fn=predict_assigned_team,
+            inputs=[case_picker, threshold],
+            outputs=assigned_output,
+        )
+        escalation_button.click(
+            fn=predict_escalation_team,
+            inputs=case_picker,
+            outputs=escalation_output,
+        )
+
+    with gr.Tab("Manual review queue"):
+        queue_threshold = gr.Slider(
+            minimum=0.50,
+            maximum=0.95,
+            value=MANUAL_REVIEW_THRESHOLD,
+            step=0.05,
+            label="Confidence threshold",
+        )
+        review_table = gr.Dataframe(
+            headers=[
+                "case_id",
+                "status",
+                "priority",
+                "channel",
+                "actual_team",
+                "predicted_team",
+                "confidence",
+                "escalated",
+            ],
+            label="Cases below confidence threshold",
+            interactive=False,
+        )
+        queue_threshold.change(
+            fn=build_manual_review_queue,
+            inputs=queue_threshold,
+            outputs=review_table,
+        )
+        app.load(
+            fn=build_manual_review_queue,
+            inputs=queue_threshold,
+            outputs=review_table,
+        )
 
 
 app.launch()
