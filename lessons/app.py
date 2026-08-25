@@ -1,4 +1,19 @@
-"""Northstar Desk triage assistant — Gradio decision-support prototype."""
+"""Northstar Desk triage assistant — Gradio decision-support prototype.
+
+Hackathon deliverable: interactive tool (Track 1 + Track 3).
+
+Workflow:
+    1. Agent pastes a new case summary (optional channel + plan tier)
+    2. TriageEngine suggests team, category, priority with confidence scores
+    3. Escalation risk and keyword flags highlight cases needing attention
+    4. Top 3 similar past cases show how similar issues were resolved
+
+Run locally:
+    cd lessons && python app.py
+
+Share temporarily (if corporate network allows):
+    python app.py --share
+"""
 
 from __future__ import annotations
 
@@ -8,6 +23,7 @@ import gradio as gr
 
 from triage_engine import TriageEngine, format_similar_cases, format_suggestion
 
+# Train once at startup — ~1,700 cases fits in memory, loads in seconds
 engine = TriageEngine()
 
 CHANNELS = ["", "email", "webchat", "phone", "in_app"]
@@ -15,6 +31,7 @@ PLAN_TIERS = ["", "Free", "Standard", "Pro", "Enterprise"]
 
 
 def triage_case(case_summary: str, channel: str, plan_tier: str) -> tuple[str, str]:
+    """Gradio callback: run triage and return markdown for both output panels."""
     result = engine.suggest(case_summary, channel=channel, plan_tier=plan_tier)
     return format_suggestion(result), format_similar_cases(result.similar_cases)
 
@@ -29,6 +46,7 @@ with demo:
         """
     )
     with gr.Row():
+        # --- Input panel: what the agent knows at case intake ---
         with gr.Column():
             case_summary = gr.Textbox(
                 label="Case summary",
@@ -38,6 +56,7 @@ with demo:
             channel = gr.Dropdown(label="Channel (optional)", choices=CHANNELS, value="")
             plan_tier = gr.Dropdown(label="Plan tier (optional)", choices=PLAN_TIERS, value="")
             submit = gr.Button("Suggest routing", variant="primary")
+        # --- Output panel: suggestions for human review, not auto-routing ---
         with gr.Column():
             routing_output = gr.Markdown(label="Routing & risk")
             similar_output = gr.Markdown(label="Similar past cases")
@@ -48,6 +67,7 @@ with demo:
         outputs=[routing_output, similar_output],
     )
 
+    # Pre-loaded examples for demo / presentation
     gr.Examples(
         examples=[
             [
