@@ -19,7 +19,7 @@ from model_utils import load_case_data, add_file_month, DEMO_MONTHS
 port = 7860
 
 # Load the trained pipeline. Older artifacts may wrap it in a mapping.
-loaded_model = joblib.load("model/assigned_team_pipeline.joblib")
+loaded_model = joblib.load("models/assigned_team_pipeline.joblib")
 model = loaded_model["model"] if isinstance(loaded_model, dict) else loaded_model
 
 # Generate input components from the Pydantic schema (ChurnInput)
@@ -60,8 +60,8 @@ categorical_options = {
     "sentiment": ["Positive", "Neutral", "Negative"],
 }
 
-# Confidence percentage slider withd default value of 75%
-confidence_slider = gr.Slider(minimum=0, maximum=100, value=75, label="Confidence Percentage")
+# Confidence percentage slider withd default value of 70%
+confidence_slider = gr.Slider(minimum=0, maximum=100, value=70, label="Confidence Percentage")
 
 
 def build_input(field_name):
@@ -262,7 +262,7 @@ with gr.Blocks(title="Team CShaNTy - Northstar Desk - Assign Team Prediction") a
         with gr.Tab("Manual Review"):
             manual_review_table = gr.Dataframe(
                 value=manual_review_df,
-                headers=["case_id", "Actual Assigned Team", "Predicted Team 1", "Predicted Team 2"],
+                headers=["Case ID", "Actual Assigned Team", "Predicted Team 1", "Predicted Team 2"],
                 datatype=["str", "str", "str", "str"],
                 label="Manual Review",
                 interactive=False,
