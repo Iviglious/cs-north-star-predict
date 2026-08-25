@@ -115,7 +115,11 @@ def load_case(case_id):
     return field_updates + [gr.update(value=expected_team)]
 
 
-def comparison_html(predicted, expected, top_predictions, confidence_percentage):
+def format_prediction(team, probability):
+    return f"{team} ({probability:.0%})"
+
+
+def comparison_html(predicted, expected, top_predictions, confidence):
     """Render a green (Correct) / red (Incorrect) comparison badge."""
     if not expected:
         return ""
@@ -133,7 +137,7 @@ def comparison_html(predicted, expected, top_predictions, confidence_percentage)
             f"border-radius:8px;text-align:center;font-weight:bold;font-size:16px;'>"
             f"Warning: The top prediction is below the confidence threshold."
             f"</div>"
-            if top_predictions and list(top_predictions.values())[0] < (confidence_percentage / 100.0)
+            if top_predictions and list(top_predictions.values())[0] < (confidence / 100.0)
             else ""
         )
 
@@ -191,46 +195,83 @@ def predict(*args) -> tuple:
     return pred, comparison_html(pred, expected_team, top_predictions, confidence_percentage)
 
 
-# Build the interface with Blocks so the case dropdown can populate the fields.
+def build_manual_review_table(confidence_percentage):
+    """Return cases whose top prediction is below the confidence threshold."""
+    probabilities = model.predict_proba(cases_df[field_names])
+    rows = []
+
+    for case_id, actual_team, case_probabilities in zip(
+        cases_df["case_id"],
+        cases_df["assigned_team"],
+        probabilities,
+    ):
+        top_indices = case_probabilities.argsort()[-2:][::-1]
+        if case_probabilities[top_indices[0]] >= (confidence_percentage / 100.0):
+            continue
+        rows.append(
+            {
+                "case_id": case_id,
+                "Actual Team": actual_team,
+                "Predicted Team 1": format_prediction(
+                    model.classes_[top_indices[0]], case_probabilities[top_indices[0]]
+                ),
+                "Predicted Team 2": format_prediction(
+                    model.classes_[top_indices[1]], case_probabilities[top_indices[1]]
+                ),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+def update_manual_review(confidence_percentage):
+    return build_manual_review_table(confidence_percentage)
+
+
+manual_review_df = build_manual_review_table(confidence_slider.value)
+
+
 with gr.Blocks(title="Team CShaNTy - Northstar Desk - Assign Team Prediction") as demo:
     gr.Markdown("# Team CShaNTy - Northstar Desk - Assign Team Prediction")
-    gr.Markdown(
-        "Select a case to auto-fill its details, or edit the fields manually, "
-        "then predict the team to which the case will be assigned."
-    )
-
-    # Add the confidence percentage slider to the interface
     confidence_slider.render()
+    with gr.Tabs():
+        with gr.Tab("Predict Single Case"):
+            gr.Markdown(
+                "Select a case to auto-fill its details, or edit the fields manually, "
+                "then predict the team to which the case will be assigned."
+            )
 
-    # Dropdown listing every case (row) from the CSV.
-    case_dropdown = gr.Dropdown(
-        choices=case_ids,
-        value=None,
-        label="Case Id",
-    )
+            case_dropdown = gr.Dropdown(choices=case_ids, value=None, label="Case Id")
+            inputs = [build_input(field_name) for field_name in field_names]
+            expected_team = gr.Textbox(label="Expected Assigned Team", interactive=False)
+            predict_btn = gr.Button("Predict", variant="primary")
+            output = gr.Label(label="Predicted Team")
+            comparison = gr.HTML(label="Comparison")
 
-    # One input component per schema field.
-    inputs = [build_input(field_name) for field_name in field_names]
+            case_dropdown.change(
+                fn=load_case,
+                inputs=case_dropdown,
+                outputs=inputs + [expected_team],
+            )
+            predict_btn.click(
+                fn=predict,
+                inputs=inputs + [expected_team, confidence_slider],
+                outputs=[output, comparison],
+            )
 
-    # The actual team from the CSV, shown for comparison against the prediction.
-    expected_team = gr.Textbox(label="Expected Assigned Team", interactive=False)
+        with gr.Tab("Manual Review"):
+            manual_review_table = gr.Dataframe(
+                value=manual_review_df,
+                headers=["case_id", "Actual Team", "Predicted Team 1", "Predicted Team 2"],
+                datatype=["str", "str", "str", "str"],
+                label="Manual Review",
+                interactive=False,
+            )
 
-    predict_btn = gr.Button("Predict", variant="primary")
-    output = gr.Label(label="Predicted Team")
-    comparison = gr.HTML(label="Comparison")
-
-    # When a case is selected, populate all the field inputs and the expected team.
-    case_dropdown.change(
-        fn=load_case,
-        inputs=case_dropdown,
-        outputs=inputs + [expected_team],
-    )
-
-    # Run the prediction using the current field values and compare it.
-    predict_btn.click(
-        fn=predict,
-        inputs=inputs + [expected_team] + [confidence_slider],
-        outputs=[output, comparison],
+    confidence_slider.change(
+        fn=update_manual_review,
+        inputs=confidence_slider,
+        outputs=manual_review_table,
     )
 
 
