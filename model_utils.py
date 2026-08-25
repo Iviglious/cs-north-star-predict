@@ -10,7 +10,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import MultiLabelBinarizer, OneHotEncoder
+from sklearn.preprocessing import OneHotEncoder
 from sklearn.tree import DecisionTreeClassifier
 
 
@@ -45,6 +45,7 @@ EXPECTED_COLUMNS = [
 ]
 #split features
 ROUTING_FEATURES = ["channel", "priority", "sla_target_hours", "plan_tier", "sentiment", "tags"]
+ESCALATION_ROUTING_FEATURES = ROUTING_FEATURES + ["assigned_team"]
 CATEGORICAL_ROUTING_FEATURES = ["channel", "priority", "plan_tier", "sentiment"]
 NUMERIC_ROUTING_FEATURES = ["sla_target_hours"]
 TAG_FEATURE = "tags"
@@ -68,7 +69,7 @@ MONTH_ORDER = {
 }
 TRAIN_MONTHS = range(1, 7)
 TEST_MONTHS = range(7, 10)
-HOLDOUT_MONTHS = range(10, 13)
+HOLDOUT_MONTHS = range(10, 12)
 FINAL_TRAIN_MONTHS = range(1, 10)
 DEMO_MONTHS = range(10, 13)
 PRIMARY_EVALUATION_SLICE = "solved_only"
@@ -194,26 +195,44 @@ def make_model(model_type):
     raise ValueError("model_type must be one of: 'logistic', 'decision_tree', 'random_forest'")
 
 
-def make_pipeline(model_type):
-    preprocessor = ColumnTransformer(
-        transformers=[
+def make_pipeline(model_type, feature_columns=ROUTING_FEATURES):
+    feature_columns = list(feature_columns)
+    categorical_features = [
+        column
+        for column in CATEGORICAL_ROUTING_FEATURES + ["assigned_team"]
+        if column in feature_columns
+    ]
+    numeric_features = [
+        column for column in NUMERIC_ROUTING_FEATURES if column in feature_columns
+    ]
+
+    transformers = []
+    if categorical_features:
+        transformers.append(
             (
                 "categorical",
                 OneHotEncoder(handle_unknown="ignore"),
-                CATEGORICAL_ROUTING_FEATURES,
-            ),
+                categorical_features,
+            )
+        )
+    if numeric_features:
+        transformers.append(
             (
                 "numeric",
                 SimpleImputer(strategy="median"),
-                NUMERIC_ROUTING_FEATURES,
-            ),
+                numeric_features,
+            )
+        )
+    if TAG_FEATURE in feature_columns:
+        transformers.append(
             (
                 "tags",
                 TagBinarizer(),
                 [TAG_FEATURE],
-            ),
-        ]
-    )
+            )
+        )
+
+    preprocessor = ColumnTransformer(transformers=transformers)
 
     return Pipeline(
         steps=[
@@ -235,7 +254,7 @@ def add_file_month(df):
     return df
 
 
-def build_temporal_model_frames(labelled_cases, target_column):
+def build_temporal_model_frames(labelled_cases, target_column, feature_columns=ROUTING_FEATURES):
     labelled_cases = add_file_month(labelled_cases)
 
     split_masks = {
@@ -249,7 +268,7 @@ def build_temporal_model_frames(labelled_cases, target_column):
         split_cases = labelled_cases.loc[mask].copy()
         frames[split_name] = {
             "cases": split_cases,
-            "X": split_cases[ROUTING_FEATURES].copy(),
+            "X": split_cases[list(feature_columns)].copy(),
             "y": split_cases[target_column].copy(),
         }
 
@@ -266,7 +285,7 @@ def train_temporal_classifier(frames, target_name, model_type="logistic", slice_
     if y_train.nunique() < 2:
         raise ValueError(f"{target_name} needs at least two training classes")
 
-    model = make_pipeline(model_type)
+    model = make_pipeline(model_type, feature_columns=X_train.columns)
     model.fit(X_train, y_train)
 
     label = f"{target_name} {model_type}"
@@ -299,6 +318,46 @@ def train_temporal_classifier(frames, target_name, model_type="logistic", slice_
     }
 
     return model, metrics
+
+
+def evaluate_manual_review_thresholds(
+    model,
+    frames,
+    thresholds=(0.5, 0.6, 0.7, 0.8, 0.9),
+    split_name="test_july_to_sept",
+):
+    cases = frames[split_name]["cases"].copy()
+    X = frames[split_name]["X"]
+    y = frames[split_name]["y"]
+
+    predictions = model.predict(X)
+    probabilities = model.predict_proba(X)
+    confidence = probabilities.max(axis=1)
+
+    results = cases[["case_id", "source_file", "status", "assigned_team"]].copy()
+    results["predicted_assigned_team"] = predictions
+    results["confidence"] = confidence
+    results["correct"] = results["predicted_assigned_team"].eq(y)
+
+    threshold_rows = []
+    for threshold in thresholds:
+        auto_suggested = results["confidence"] >= threshold
+        manual_review = ~auto_suggested
+
+        threshold_rows.append(
+            {
+                "threshold": threshold,
+                "cases": len(results),
+                "auto_suggested_cases": int(auto_suggested.sum()),
+                "manual_review_cases": int(manual_review.sum()),
+                "auto_suggest_rate": auto_suggested.mean(),
+                "manual_review_rate": manual_review.mean(),
+                "overall_accuracy": results["correct"].mean(),
+                "auto_suggest_accuracy": results.loc[auto_suggested, "correct"].mean(),
+            }
+        )
+
+    return pd.DataFrame(threshold_rows), results
 
 
 def build_assigned_team_frames_by_slice(cases):
@@ -348,7 +407,27 @@ def build_escalation_team_frames(cases):
     escalation_cases = cases[
         cases["escalated"].eq(True) & cases["escalation_team"].notna()
     ].copy()
-    return build_temporal_model_frames(escalation_cases, "escalation_team")
+    return build_temporal_model_frames(
+        escalation_cases,
+        "escalation_team",
+        feature_columns=ESCALATION_ROUTING_FEATURES,
+    )
+
+
+def final_escalation_train_demo_split(cases):
+    escalation_cases = add_file_month(
+        cases[
+            cases["escalated"].eq(True)
+            & cases["assigned_team"].notna()
+            & cases["escalation_team"].notna()
+        ].copy()
+    )
+
+    final_train_cases = escalation_cases[
+        escalation_cases["file_month"].isin(FINAL_TRAIN_MONTHS)
+    ].copy()
+    demo_cases = escalation_cases[escalation_cases["file_month"].isin(DEMO_MONTHS)].copy()
+    return final_train_cases, demo_cases
 
 
 def _filter_by_slice(labelled_cases, slice_name):
