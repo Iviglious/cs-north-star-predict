@@ -101,9 +101,9 @@ def coerce_field_value(field_name, raw_value):
 
 
 def load_case(case_id):
-    """Return the field values for the selected case plus its expected team."""
+    """Return the field values for the selected case plus its actual team."""
     if case_id is None or case_id not in cases_by_id.index:
-        # Nothing selected: leave the inputs unchanged and clear the expected team.
+        # Nothing selected: leave the inputs unchanged and clear the actual team.
         return [gr.update() for _ in field_names] + [gr.update(value=None)]
 
     row = cases_by_id.loc[case_id]
@@ -111,19 +111,19 @@ def load_case(case_id):
         gr.update(value=coerce_field_value(field_name, row[field_name]))
         for field_name in field_names
     ]
-    expected_team = None if pd.isna(row["assigned_team"]) else str(row["assigned_team"])
-    return field_updates + [gr.update(value=expected_team)]
+    actual_team = None if pd.isna(row["assigned_team"]) else str(row["assigned_team"])
+    return field_updates + [gr.update(value=actual_team)]
 
 
 def format_prediction(team, probability):
     return f"{team} ({probability:.0%})"
 
 
-def comparison_html(predicted, expected, top_predictions, confidence):
+def comparison_html(predicted, actual, top_predictions, confidence):
     """Render a green (Correct) / red (Incorrect) comparison badge."""
-    if not expected:
+    if not actual:
         return ""
-    is_correct = str(predicted).strip().lower() == str(expected).strip().lower()
+    is_correct = str(predicted).strip().lower() == str(actual).strip().lower()
     color = "#22c55e" if is_correct else "#ef4444"
     text = "Correct" if is_correct else "Incorrect"
     return (
@@ -155,10 +155,10 @@ def comparison_html(predicted, expected, top_predictions, confidence):
 
 
 # Define the prediction function. It returns the predicted team label and a
-# colored badge comparing it against the expected assigned team.
+# colored badge comparing it against the actual team.
 def predict(*args) -> tuple:
-    # The last argument is the expected assigned team (not a model input).
-    *field_values, expected_team, confidence_percentage = args
+    # The last argument is the actual assigned team (not a model input).
+    *field_values, actual_team, confidence_percentage = args
 
     # Match predicts input with the field names
     input_data = dict(zip(field_names, field_values))
@@ -192,7 +192,7 @@ def predict(*args) -> tuple:
 
     # Return the predicted label and the comparison badge
     # Pass the dictionary of top classes and probabilities to the comparison_html function for display
-    return pred, comparison_html(pred, expected_team, top_predictions, confidence_percentage)
+    return pred, comparison_html(pred, actual_team, top_predictions, confidence_percentage)
 
 
 def build_manual_review_table(confidence_percentage):
@@ -243,7 +243,7 @@ with gr.Blocks(title="Team CShaNTy - Northstar Desk - Assign Team Prediction") a
 
             case_dropdown = gr.Dropdown(choices=case_ids, value=None, label="Case Id")
             inputs = [build_input(field_name) for field_name in field_names]
-            expected_team = gr.Textbox(label="Expected Assigned Team", interactive=False)
+            actual_team = gr.Textbox(label="Actual Assigned Team", interactive=False)
             predict_btn = gr.Button("Predict", variant="primary")
             output = gr.Label(label="Predicted Team")
             comparison = gr.HTML(label="Comparison")
@@ -251,21 +251,22 @@ with gr.Blocks(title="Team CShaNTy - Northstar Desk - Assign Team Prediction") a
             case_dropdown.change(
                 fn=load_case,
                 inputs=case_dropdown,
-                outputs=inputs + [expected_team],
+                outputs=inputs + [actual_team],
             )
             predict_btn.click(
                 fn=predict,
-                inputs=inputs + [expected_team, confidence_slider],
+                inputs=inputs + [actual_team, confidence_slider],
                 outputs=[output, comparison],
             )
 
         with gr.Tab("Manual Review"):
             manual_review_table = gr.Dataframe(
                 value=manual_review_df,
-                headers=["case_id", "Actual Team", "Predicted Team 1", "Predicted Team 2"],
+                headers=["case_id", "Actual Assigned Team", "Predicted Team 1", "Predicted Team 2"],
                 datatype=["str", "str", "str", "str"],
                 label="Manual Review",
                 interactive=False,
+                max_height=800,
             )
 
     confidence_slider.change(
