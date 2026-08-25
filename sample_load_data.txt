@@ -1,0 +1,207 @@
+import joblib
+import gradio as gr
+import pandas as pd
+
+from model_utils import (
+    DEMO_MONTHS,
+    ESCALATION_ROUTING_FEATURES,
+    ROUTING_FEATURES,
+    add_file_month,
+    load_case_data,
+)
+
+
+MANUAL_REVIEW_THRESHOLD = 0.70
+
+cases, repair_log = load_case_data("data")
+cases = add_file_month(cases)
+
+demo_cases = (
+    cases[cases["file_month"].isin(DEMO_MONTHS)]
+    .sort_values(["case_id", "file_month"])
+    .drop_duplicates("case_id", keep="last")
+    .copy()
+)
+
+case_choices = demo_cases["case_id"].sort_values().tolist()
+
+assigned_team_model = joblib.load("models/assigned_team_pipeline.joblib")
+escalation_team_model = joblib.load("models/escalation_team_pipeline.joblib")
+
+
+def get_selected_case(case_id):
+    selected_case = demo_cases[demo_cases["case_id"].eq(case_id)].copy()
+    if len(selected_case) != 1:
+        raise ValueError(f"Expected one case for {case_id}, found {len(selected_case)}")
+    return selected_case
+
+
+def case_details(case_id):
+    selected_case = get_selected_case(case_id)
+    escalated = bool(selected_case["escalated"].iloc[0])
+
+    details = selected_case[
+        [
+            "case_id",
+            "status",
+            "escalated",
+            "assigned_team",
+            "escalation_team",
+            "channel",
+            "priority",
+            "plan_tier",
+            "sentiment",
+            "tags",
+            "case_summary",
+        ]
+    ].iloc[0].to_dict()
+
+    return details, gr.update(interactive=escalated)
+
+
+def predict_assigned_team(case_id, threshold):
+    selected_case = get_selected_case(case_id)
+    selected_features = selected_case[ESCALATION_ROUTING_FEATURES]
+
+    prediction = assigned_team_model.predict(selected_features)[0]
+    probabilities = assigned_team_model.predict_proba(selected_features)[0]
+    confidence = probabilities.max()
+    manual_review = confidence < threshold
+
+    probability_table = (
+        pd.DataFrame(
+            {
+                "team": assigned_team_model.classes_,
+                "probability": probabilities,
+            }
+        )
+        .sort_values("probability", ascending=False)
+        .head(3)
+    )
+
+    return {
+        "predicted_assigned_team": prediction,
+        "actual_assigned_team": selected_case["assigned_team"].iloc[0],
+        "confidence": f"{confidence:.1%}",
+        "manual_review": manual_review,
+        "top_3_probabilities": probability_table.to_dict(orient="records"),
+    }
+
+
+def predict_escalation_team(case_id):
+    selected_case = get_selected_case(case_id)
+
+    if not bool(selected_case["escalated"].iloc[0]):
+        return {
+            "prediction": "Not applicable",
+            "reason": "This case was not escalated.",
+        }
+
+    selected_features = selected_case[ROUTING_FEATURES]
+    prediction = escalation_team_model.predict(selected_features)[0]
+    probabilities = escalation_team_model.predict_proba(selected_features)[0]
+    confidence = probabilities.max()
+
+    return {
+        "predicted_escalation_team": prediction,
+        "actual_escalation_team": selected_case["escalation_team"].iloc[0],
+        "confidence": f"{confidence:.1%}",
+    }
+
+
+def build_manual_review_queue(threshold):
+    rows = []
+    for _, row in demo_cases.iterrows():
+        features = row[ROUTING_FEATURES]
+        probability = assigned_team_model.predict_proba(features.to_frame().T)[0]
+        confidence = probability.max()
+        prediction = assigned_team_model.predict(features.to_frame().T)[0]
+
+        if confidence < threshold:
+            rows.append(
+                {
+                    "case_id": row["case_id"],
+                    "status": row["status"],
+                    "priority": row["priority"],
+                    "channel": row["channel"],
+                    "actual_team": row["assigned_team"],
+                    "predicted_team": prediction,
+                    "confidence": f"{confidence:.1%}",
+                    "escalated": bool(row["escalated"]),
+                }
+            )
+
+    return pd.DataFrame(rows)
+
+
+with gr.Blocks() as app:
+    gr.Markdown("# Northstar Desk routing assistant")
+
+    with gr.Tab("Single case review"):
+        case_picker = gr.Dropdown(case_choices, label="Select Oct-Dec demo case")
+        threshold = gr.Slider(
+            minimum=0.50,
+            maximum=0.95,
+            value=MANUAL_REVIEW_THRESHOLD,
+            step=0.05,
+            label="Minimum confidence for auto-suggestion",
+        )
+
+        case_output = gr.JSON(label="Case details")
+        assigned_output = gr.JSON(label="Assigned-team prediction")
+        escalation_output = gr.JSON(label="Escalation-team prediction")
+
+        assigned_button = gr.Button("Predict assigned team")
+        escalation_button = gr.Button("Predict escalation team", interactive=False)
+
+        case_picker.change(
+            fn=case_details,
+            inputs=case_picker,
+            outputs=[case_output, escalation_button],
+        )
+        assigned_button.click(
+            fn=predict_assigned_team,
+            inputs=[case_picker, threshold],
+            outputs=assigned_output,
+        )
+        escalation_button.click(
+            fn=predict_escalation_team,
+            inputs=case_picker,
+            outputs=escalation_output,
+        )
+
+    with gr.Tab("Manual review queue"):
+        queue_threshold = gr.Slider(
+            minimum=0.50,
+            maximum=0.95,
+            value=MANUAL_REVIEW_THRESHOLD,
+            step=0.05,
+            label="Confidence threshold",
+        )
+        review_table = gr.Dataframe(
+            headers=[
+                "case_id",
+                "status",
+                "priority",
+                "channel",
+                "actual_team",
+                "predicted_team",
+                "confidence",
+                "escalated",
+            ],
+            label="Cases below confidence threshold",
+            interactive=False,
+        )
+        queue_threshold.change(
+            fn=build_manual_review_queue,
+            inputs=queue_threshold,
+            outputs=review_table,
+        )
+        app.load(
+            fn=build_manual_review_queue,
+            inputs=queue_threshold,
+            outputs=review_table,
+        )
+
+
+app.launch()
